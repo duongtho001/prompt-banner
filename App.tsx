@@ -7,6 +7,7 @@ import PromptBuilder from './components/PromptBuilder';
 import ResultDisplay from './components/ResultDisplay';
 import GuideModal from './components/GuideModal';
 import LibraryModal from './components/LibraryModal';
+import SettingsModal from './components/SettingsModal';
 import Icon from './components/Icon';
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
   const [currentResult, setCurrentResult] = useState<GeneratedResult | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     if ((window as any).lucide) {
@@ -47,7 +49,7 @@ function App() {
         }
       }, 100);
     } catch (error) {
-      alert("Có lỗi xảy ra khi tạo prompt. Vui lòng thử lại.");
+      alert("Có lỗi xảy ra hoặc chưa có API Key. Vui lòng kiểm tra cài đặt.");
       console.error(error);
     } finally {
       setIsGenerating(false);
@@ -77,7 +79,7 @@ function App() {
       saveToLibrary(updatedResult);
       
     } catch (error) {
-      alert("Không thể tạo ảnh xem trước. Có thể do giới hạn API.");
+      alert("Không thể tạo ảnh xem trước. Có thể do giới hạn API hoặc hết Quota.");
       console.error(error);
     } finally {
       setIsVisualizing(false);
@@ -144,14 +146,20 @@ function App() {
             >
               <Icon name="BookOpen" size={16} /> Hướng dẫn
             </button>
-            <a 
-              href="https://ai.google.dev/" 
-              target="_blank" 
-              rel="noreferrer"
-              className="px-4 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-white transition-colors border border-slate-700"
+            <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="hover:text-white cursor-pointer transition-colors flex items-center gap-1 text-slate-300"
+              title="Cài đặt API Key"
             >
-              Powered by Gemini
-            </a>
+              <Icon name="Settings" size={16} /> Cài đặt
+            </button>
+          </div>
+          
+          {/* Mobile menu button placeholder */}
+          <div className="md:hidden flex items-center">
+             <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-slate-400">
+                <Icon name="Settings" size={20} />
+             </button>
           </div>
         </div>
       </header>
@@ -196,6 +204,10 @@ function App() {
         isOpen={isLibraryOpen} 
         onClose={() => setIsLibraryOpen(false)} 
         onSelect={handleLoadFromLibrary}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
     </div>
   );

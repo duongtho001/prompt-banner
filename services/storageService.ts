@@ -1,6 +1,9 @@
 import { GeneratedResult } from "../types";
 
 const STORAGE_KEY = "prompt_master_library";
+const API_KEYS_STORAGE_KEY = "prompt_master_api_keys";
+
+// --- LIBRARY FUNCTIONS ---
 
 export const getLibrary = (): GeneratedResult[] => {
   try {
@@ -47,4 +50,25 @@ export const removeFromLibrary = (id: string): GeneratedResult[] => {
 
 export const clearLibrary = () => {
   localStorage.removeItem(STORAGE_KEY);
+};
+
+// --- API KEY FUNCTIONS ---
+
+export const getStoredApiKeys = (): string[] => {
+  try {
+    const data = localStorage.getItem(API_KEYS_STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (error) {
+    return [];
+  }
+};
+
+export const saveApiKeys = (keys: string[]) => {
+  try {
+    // Filter empty lines and trim
+    const cleanKeys = keys.map(k => k.trim()).filter(k => k.length > 0);
+    localStorage.setItem(API_KEYS_STORAGE_KEY, JSON.stringify(cleanKeys));
+  } catch (error) {
+    console.error("Failed to save API keys", error);
+  }
 };

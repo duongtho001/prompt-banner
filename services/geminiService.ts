@@ -1,9 +1,75 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { PromptInputs, GraphicCategory } from "../types";
 import { CATEGORIES } from "../constants";
+import { getStoredApiKeys } from "./storageService";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+// Key Management Logic
+let apiKeys: string[] = [];
+let currentKeyIndex = 0;
+
+// Initialize keys from storage or env
+const initializeKeys = () => {
+  const storedKeys = getStoredApiKeys();
+  if (storedKeys.length > 0) {
+    apiKeys = storedKeys;
+  } else if (process.env.API_KEY) {
+    apiKeys = [process.env.API_KEY];
+  }
+  currentKeyIndex = 0;
+};
+
+// Call init immediately
+initializeKeys();
+
+// Allow manual reload of keys (called after settings save)
+export const reloadApiKeys = () => {
+  initializeKeys();
+};
+
+const getClient = (): GoogleGenAI => {
+  if (apiKeys.length === 0) {
+    throw new Error("Chưa cấu hình API Key. Vui lòng vào Cài đặt để thêm Key.");
+  }
+  // Wrap index to ensure safety
+  if (currentKeyIndex >= apiKeys.length) {
+    currentKeyIndex = 0;
+  }
+  return new GoogleGenAI({ apiKey: apiKeys[currentKeyIndex] });
+};
+
+// Retry Wrapper Logic
+const executeWithRetry = async <T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T> => {
+  const startKeyIndex = currentKeyIndex;
+  
+  // We try as many times as we have keys
+  for (let attempt = 0; attempt < apiKeys.length; attempt++) {
+    try {
+      const ai = getClient();
+      return await operation(ai);
+    } catch (error: any) {
+      const isQuotaError = error.status === 429 || 
+                           (error.message && error.message.includes("429")) ||
+                           (error.toString().includes("Resource has been exhausted"));
+
+      if (isQuotaError) {
+        console.warn(`API Key ending in ...${apiKeys[currentKeyIndex].slice(-4)} exhausted. Switching...`);
+        
+        // Move to next key
+        currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+        
+        // If we've circled back to the start key, we're out of options
+        if (currentKeyIndex === startKeyIndex) {
+          throw new Error("Tất cả API Key đều đã hết hạn ngạch (Quota). Vui lòng thử lại sau.");
+        }
+        // Loop continues with new key
+      } else {
+        // If it's not a quota error, throw immediately
+        throw error;
+      }
+    }
+  }
+  throw new Error("Không thể kết nối đến dịch vụ AI.");
+};
 
 const promptDetailsSchema: Schema = {
   type: Type.OBJECT,
@@ -39,12 +105,10 @@ export const generateOptimizedPrompt = async (
   category: GraphicCategory,
   inputs: PromptInputs
 ): Promise<string[]> => {
-  if (!apiKey) throw new Error("API Key not found");
+  if (apiKeys.length === 0) throw new Error("API Key missing");
 
   const categoryInfo = CATEGORIES.find(c => c.id === category);
   
-  // Logic to determine Aspect Ratio
-  // If user selected a specific ratio (for Infographic), use it. Otherwise use default category ratio.
   const targetAr = (category === GraphicCategory.INFOGRAPHIC && inputs.selectedRatio)
     ? inputs.selectedRatio
     : (categoryInfo?.aspectRatio || '16:9');
@@ -151,13 +215,13 @@ export const generateOptimizedPrompt = async (
     Hãy tạo ra ${count} prompt Tiếng Việt chất lượng cao.
   `;
 
-  try {
+  return executeWithRetry(async (ai) => {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: userContent,
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.8, // Slightly higher creativity for variations
+        temperature: 0.8,
         responseMimeType: "application/json",
         responseSchema: multiPromptSchema
       }
@@ -168,18 +232,13 @@ export const generateOptimizedPrompt = async (
 
     const parsed = JSON.parse(cleanJsonString(text));
     return parsed.prompts || ["Lỗi định dạng phản hồi."];
-
-  } catch (error) {
-    console.error("Error generating prompts:", error);
-    // Fallback if JSON fails, strictly for safety
-    return ["Đã xảy ra lỗi khi tạo nhiều biến thể. Vui lòng thử lại."];
-  }
+  });
 };
 
 export const generatePreviewImage = async (prompt: string, aspectRatio: string = "1:1", referenceImageBase64?: string): Promise<string> => {
-  if (!apiKey) throw new Error("API Key not found");
+  if (apiKeys.length === 0) throw new Error("API Key missing");
 
-  try {
+  return executeWithRetry(async (ai) => {
     const parts: any[] = [{ text: prompt }];
     
     if (referenceImageBase64) {
@@ -209,16 +268,13 @@ export const generatePreviewImage = async (prompt: string, aspectRatio: string =
       }
     }
     throw new Error("No image data returned");
-  } catch (error) {
-    console.error("Error generating image:", error);
-    throw error;
-  }
+  });
 };
 
 export const suggestDetailsFromSubject = async (subject: string, category: string): Promise<Partial<PromptInputs>> => {
-  if (!apiKey || !subject) return {};
+  if (apiKeys.length === 0 || !subject) return {};
   
-  try {
+  return executeWithRetry(async (ai) => {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Gợi ý chi tiết thiết kế đồ họa cho loại ấn phẩm "${category}" với chủ đề: "${subject}".`,
@@ -238,16 +294,13 @@ export const suggestDetailsFromSubject = async (subject: string, category: strin
       }
     }
     return {};
-  } catch (error) {
-    console.error("Error suggesting details:", error);
-    throw error;
-  }
+  });
 };
 
 export const extractDetailsFromImage = async (base64Image: string): Promise<Partial<PromptInputs>> => {
-  if (!apiKey) return {};
+  if (apiKeys.length === 0) return {};
 
-  try {
+  return executeWithRetry(async (ai) => {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash', 
       contents: {
@@ -271,8 +324,5 @@ export const extractDetailsFromImage = async (base64Image: string): Promise<Part
       }
     }
     return {};
-  } catch (error) {
-    console.error("Error analyzing image:", error);
-    throw error;
-  }
+  });
 };
